@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from typing import Optional
 
+from auth import CurrentUser, get_current_user
 from database import get_db
 import models
 import schemas
@@ -68,12 +69,17 @@ def _stub_reply(region_id: Optional[str], message: str) -> str:
 
 
 @router.post("", response_model=schemas.ChatResponse, summary="Send a chat message and get an AI guide reply")
-def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
+def chat(
+    req: schemas.ChatRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
     session_id = req.session_id or str(uuid.uuid4())
     reply_text = _stub_reply(req.region_id, req.message)
 
     # Save user message
     user_msg = models.ChatMessage(
+        user_id=current_user.id,
         session_id=session_id,
         region_id=req.region_id,
         role="user",
@@ -83,6 +89,7 @@ def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
 
     # Save assistant message
     asst_msg = models.ChatMessage(
+        user_id=current_user.id,
         session_id=session_id,
         region_id=req.region_id,
         role="assistant",
@@ -110,10 +117,17 @@ def chat(req: schemas.ChatRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/{session_id}", response_model=list[schemas.ChatMessageOut], summary="Get chat history for a session")
-def get_chat_history(session_id: str, db: Session = Depends(get_db)):
+def get_chat_history(
+    session_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
     messages = (
         db.query(models.ChatMessage)
-        .filter(models.ChatMessage.session_id == session_id)
+        .filter(
+            models.ChatMessage.session_id == session_id,
+            models.ChatMessage.user_id == current_user.id,
+        )
         .order_by(models.ChatMessage.created_at.asc())
         .all()
     )

@@ -1288,6 +1288,8 @@ function initializeScrollSpy() {
 }
 
 // ==================== CHATBOT FUNCTIONALITY ==================== //
+let virasatSessionId = null;
+
 function initializeChatbot() {
     const chatInput = document.querySelector('.chat-input');
     const sendBtn = document.querySelector('.send-btn');
@@ -1314,11 +1316,21 @@ function sendMessage(chatInput, chatMessages) {
         addMessage(chatMessages, message, 'user');
         chatInput.value = '';
         
-        // Generate AI response
-        setTimeout(function() {
-            const aiResponse = generateAIResponse(message);
-            addMessage(chatMessages, aiResponse, 'ai');
-        }, 600);
+        const chatApi = window.__virasatChat?.send;
+        if (chatApi) {
+            chatApi({ session_id: virasatSessionId, region_id: currentRegionKey, message })
+                .then(response => {
+                    virasatSessionId = response.session_id;
+                    addMessage(chatMessages, response.reply, 'ai');
+                })
+                .catch(() => {
+                    addMessage(chatMessages, generateAIResponse(message), 'ai');
+                });
+        } else {
+            setTimeout(function() {
+                addMessage(chatMessages, generateAIResponse(message), 'ai');
+            }, 600);
+        }
     }
 }
 

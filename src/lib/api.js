@@ -7,6 +7,8 @@
 
 // Development requests go through Vite's same-origin proxy to avoid browser
 // CORS and localhost/127.0.0.1 address mismatches.
+import { supabase } from './supabase';
+
 const BASE_URL = import.meta.env.DEV
   ? ''
   : (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
@@ -24,6 +26,27 @@ async function apiFetch(path, options = {}) {
     throw err;
   }
   return res.json();
+}
+
+async function authHeaders() {
+  const { data } = await supabase.auth.getSession();
+  return data?.session?.access_token
+    ? { Authorization: `Bearer ${data.session.access_token}` }
+    : {};
+}
+
+export async function sendChatMessage(payload) {
+  return apiFetch('/api/v1/chat', {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchChatHistory(sessionId) {
+  return apiFetch(`/api/v1/chat/${encodeURIComponent(sessionId)}`, {
+    headers: await authHeaders(),
+  });
 }
 
 // ── Regions ──────────────────────────────────────────────────────────────────

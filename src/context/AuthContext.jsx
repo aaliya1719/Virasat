@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { sendChatMessage } from '../lib/api';
 
 const AuthContext = createContext({
   user: null,
@@ -138,6 +139,13 @@ export function AuthProvider({ children }) {
   };
 
   const isGuest = !user;
+
+  useEffect(() => {
+    window.__virasatChat = { send: sendChatMessage };
+    return () => {
+      delete window.__virasatChat;
+    };
+  }, []);
 
   const value = useMemo(
     () => ({

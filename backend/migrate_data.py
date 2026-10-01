@@ -198,6 +198,7 @@ def migrate(source_url: str, target_url: str):
             if not existing:
                 tgt_db.add(models.ChatMessage(
                     id=c.id,
+                    user_id=c.user_id,
                     session_id=c.session_id,
                     region_id=c.region_id,
                     role=c.role,

@@ -151,6 +151,7 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, nullable=True, index=True)
     session_id = Column(String, index=True)
     region_id = Column(String, ForeignKey("regions.id", ondelete="SET NULL"), nullable=True)
     role = Column(String, nullable=False)                       # "user" | "assistant"
