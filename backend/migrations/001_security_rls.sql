@@ -17,7 +17,7 @@ ALTER TABLE public.content_sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
 
-REVOKE INSERT, UPDATE, DELETE ON public.regions, public.places,
+REVOKE ALL ON public.regions, public.places,
     public.content_items, public.content_media, public.media,
     public.content_sources, public.sources
     FROM anon, authenticated;
