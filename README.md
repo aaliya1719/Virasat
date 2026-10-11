@@ -399,19 +399,10 @@ The goal is not to replace authoritative cultural archives. It is to make India'
 
 VIRASAT was developed as a solution for the Smart India Hackathon under the cultural heritage domain. The project focuses on cultural preservation and awareness, digital accessibility, discovery of lesser-known practices, interactive learning, regional representation, and responsible use of AI.
 
-## Team
-
-**Team name:** Add team name
-
-| Name | Role |
-|---|---|
-| Add member | Add role |
-| Add member | Add role |
-| Add member | Add role |
 
 ## License
 
-This project is intended for educational and cultural preservation purposes. Add the repository's formal license file and terms here when finalized.
+This project is intended for educational and cultural preservation purposes. 
 
 ## Acknowledgements
 
