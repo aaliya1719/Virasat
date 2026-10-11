@@ -16,9 +16,7 @@ Instead of treating heritage as a collection of isolated articles, VIRASAT conne
 | Resource | Link |
 |---|---|
 | Live prototype | Add deployment link |
-| GitHub repository | [github.com/mahek02007/Virasat](https://github.com/mahek02007/Virasat) |
-| Demo video | Add demo video link |
-| SIH presentation | Add PPT or Drive link if required |
+| GitHub repository | [github.com/aaliya1719/Virasat](https://github.com/aaliya1719/Virasat.git)) |
 
 ---
 
