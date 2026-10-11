@@ -15,7 +15,7 @@ Instead of treating heritage as a collection of isolated articles, VIRASAT conne
 
 | Resource | Link |
 |---|---|
-| Live prototype | Add deployment link |
+| Live prototype | [Virasat](https://virasat-legacy.vercel.app/) |
 | GitHub repository | [github.com/aaliya1719/Virasat](https://github.com/aaliya1719/Virasat.git)) |
 
 ---
