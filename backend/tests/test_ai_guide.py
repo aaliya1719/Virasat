@@ -1,9 +1,11 @@
 """
 Unit and integration tests for Virasat AI Cultural Guide and Chat endpoints.
 Covers:
-- Keyword extraction and stopwords filtering
+- Keyword extraction, stopwords filtering, and domain synonym expansion
 - Database-grounded heritage retrieval & genuine source citation extraction
-- Anti-hallucination handling and out-of-scope query behavior
+- Regional scope (Odisha vs Maharashtra) & cross-state query detection
+- Off-topic / non-heritage boundary redirection
+- Insufficient evidence / out-of-scope query handling (no hallucinated citations)
 - Secure fallback when GEMINI_API_KEY is unset or unavailable
 - Guest chat: unauthenticated POST /api/v1/chat must succeed (200), not return 401
 - Authenticated chat: full DB persistence and session ownership enforcement
@@ -29,6 +31,8 @@ from auth import CurrentUser, get_current_user, get_optional_user
 import models
 from services.ai_guide import (
     extract_keywords,
+    detect_target_region,
+    is_off_topic_query,
     retrieve_grounding_data,
     build_grounding_prompt,
     generate_guide_reply,
@@ -42,19 +46,40 @@ class TestAIGuideRetrieval(unittest.TestCase):
     def tearDown(self):
         self.db.close()
 
-    def test_extract_keywords(self):
-        query = "What is the history of the Warli painting tradition in Maharashtra?"
+    def test_extract_keywords_and_synonyms(self):
+        query = "Tell me about sacred chariot and temples"
         keywords = extract_keywords(query)
-        self.assertIn("warli", keywords)
-        self.assertIn("painting", keywords)
-        self.assertIn("tradition", keywords)
-        # Common stopwords should be filtered
-        self.assertNotIn("what", keywords)
-        self.assertNotIn("the", keywords)
-        self.assertNotIn("of", keywords)
+        self.assertIn("chariot", keywords)
+        self.assertIn("rath", keywords)  # Synonym expanded
+        self.assertIn("temple", keywords)
+        self.assertNotIn("tell", keywords)  # Stopwords filtered
+        self.assertNotIn("about", keywords)
+
+    def test_detect_target_region_and_cross_state(self):
+        # On Odisha page, ask about Ajanta (Maharashtra)
+        target, is_cross = detect_target_region("Tell me about Ajanta caves", active_region_id="odisha")
+        self.assertEqual(target, "maharashtra")
+        self.assertTrue(is_cross)
+
+        # On Odisha page, ask about Rath Yatra
+        target, is_cross = detect_target_region("What is Rath Yatra?", active_region_id="odisha")
+        self.assertEqual(target, "odisha")
+        self.assertFalse(is_cross)
+
+        # On Maharashtra page, ask about Konark Sun Temple
+        target, is_cross = detect_target_region("Tell me about Konark Sun Temple", active_region_id="maharashtra")
+        self.assertEqual(target, "odisha")
+        self.assertTrue(is_cross)
+
+    def test_off_topic_detection(self):
+        self.assertTrue(is_off_topic_query("Write a python script to sort an array"))
+        self.assertTrue(is_off_topic_query("What is the current Bitcoin price and how to trade crypto?"))
+        self.assertTrue(is_off_topic_query("Calculate the derivative of x^2 + 5x"))
+        self.assertFalse(is_off_topic_query("Tell me about the architecture of Konark temple"))
+        self.assertFalse(is_off_topic_query("How is Warli painting created?"))
 
     def test_retrieve_grounding_maharashtra(self):
-        region, items, places, sources = retrieve_grounding_data(
+        region, items, places, sources, has_evidence = retrieve_grounding_data(
             db=self.db,
             query="caves and temples",
             region_id="maharashtra",
@@ -62,14 +87,14 @@ class TestAIGuideRetrieval(unittest.TestCase):
         self.assertIsNotNone(region)
         self.assertEqual(region.id, "maharashtra")
         self.assertTrue(len(items) > 0)
-        # Should include authentic sources
+        self.assertTrue(has_evidence)
+        # Should include authentic sources derived from matched records
         self.assertTrue(len(sources) > 0)
-        # Verify genuine sources are present
         has_genuine = any("ASI" in s or "UNESCO" in s or "Tourism" in s for s in sources)
         self.assertTrue(has_genuine)
 
     def test_retrieve_grounding_odisha(self):
-        region, items, places, sources = retrieve_grounding_data(
+        region, items, places, sources, has_evidence = retrieve_grounding_data(
             db=self.db,
             query="Jagannath temple rath yatra",
             region_id="odisha",
@@ -77,10 +102,37 @@ class TestAIGuideRetrieval(unittest.TestCase):
         self.assertIsNotNone(region)
         self.assertEqual(region.id, "odisha")
         self.assertTrue(len(items) > 0)
+        self.assertTrue(has_evidence)
         self.assertTrue(len(sources) > 0)
 
+    def test_cross_state_retrieval(self):
+        # Even if active region is odisha, querying Ajanta should retrieve Maharashtra records
+        region, items, places, sources, has_evidence = retrieve_grounding_data(
+            db=self.db,
+            query="Tell me about Ajanta caves and rock temples",
+            region_id="odisha",
+        )
+        self.assertIsNotNone(region)
+        self.assertEqual(region.id, "maharashtra")
+        self.assertTrue(has_evidence)
+        item_titles = [i.title for i in items]
+        self.assertTrue(any("Ajanta" in t for t in item_titles))
+
+    def test_insufficient_evidence_no_hallucinated_sources(self):
+        # Query for something completely absent from our DB records
+        region, items, places, sources, has_evidence = retrieve_grounding_data(
+            db=self.db,
+            query="Zeppelin aerospace aeronautics satellite rocket",
+            region_id="maharashtra",
+        )
+        self.assertFalse(has_evidence)
+        self.assertEqual(len(items), 0)
+        self.assertEqual(len(places), 0)
+        # Sources list should be strictly empty, preventing false citations
+        self.assertEqual(len(sources), 0)
+
     def test_build_grounding_prompt(self):
-        region, items, places, sources = retrieve_grounding_data(
+        region, items, places, sources, has_evidence = retrieve_grounding_data(
             db=self.db,
             query="Warli art",
             region_id="maharashtra",
@@ -92,13 +144,14 @@ class TestAIGuideRetrieval(unittest.TestCase):
             places=places,
             sources=sources,
             page_context="Arts & Crafts section",
+            is_cross_state=False,
+            active_page_region="maharashtra",
         )
-        self.assertIn("REGION CONTEXT", prompt)
+        self.assertIn("ARCHIVE REGION CONTEXT", prompt)
         self.assertIn("VERIFIED SOURCE CITATIONS", prompt)
         self.assertIn("USER QUESTION", prompt)
 
     def test_fallback_when_gemini_unconfigured(self):
-        # Ensure GEMINI_API_KEY is empty for this test
         old_key = os.environ.get("GEMINI_API_KEY")
         try:
             if "GEMINI_API_KEY" in os.environ:
@@ -132,40 +185,48 @@ class TestChatEndpointsAndSecurity(unittest.TestCase):
     # ── Guest chat regression tests ─────────────────────────────────────────
 
     def test_guest_chat_succeeds_without_token(self):
-        """
-        Regression: POST /api/v1/chat with no Authorization header must return 200,
-        not 401. Guests must receive a grounded AI reply.
-        """
         res = self.client.post("/api/v1/chat", json={
             "region_id": "maharashtra",
             "message": "Tell me about Ajanta caves",
         })
-        self.assertEqual(res.status_code, 200, f"Expected 200 for guest chat, got {res.status_code}: {res.text}")
+        self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertIn("reply", data)
-        self.assertTrue(len(data["reply"]) > 10, "Guest reply should not be empty")
+        self.assertTrue(len(data["reply"]) > 10)
         self.assertIn("session_id", data)
         self.assertIn("sources", data)
 
     def test_guest_chat_odisha_succeeds(self):
-        """Guest chat for Odisha region must also return 200."""
         res = self.client.post("/api/v1/chat", json={
             "region_id": "odisha",
             "message": "What is the Rath Yatra festival?",
         })
-        self.assertEqual(res.status_code, 200, f"Expected 200 for guest Odisha chat, got {res.status_code}: {res.text}")
+        self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertIn("reply", data)
 
-    def test_guest_chat_no_region_succeeds(self):
-        """Guest chat with no region_id must return 200 with a general response."""
+    def test_guest_chat_cross_state_succeeds(self):
+        # On Odisha page, ask about Raigad Fort in Maharashtra
         res = self.client.post("/api/v1/chat", json={
-            "message": "Tell me about Indian heritage",
+            "region_id": "odisha",
+            "message": "Tell me about Raigad Fort in Maharashtra",
         })
-        self.assertEqual(res.status_code, 200, f"Expected 200 for general guest chat, got {res.status_code}: {res.text}")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIn("reply", data)
+        self.assertIn("Raigad", data["reply"])
+
+    def test_off_topic_boundary_redirection(self):
+        res = self.client.post("/api/v1/chat", json={
+            "region_id": "maharashtra",
+            "message": "Write python code to compute fibonacci numbers",
+        })
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIn("heritage", data["reply"].lower())
+        self.assertEqual(len(data["sources"]), 0)
 
     def test_guest_chat_does_not_persist_to_db(self):
-        """Guest messages must not be saved to the database."""
         session_id = f"guest-sess-{uuid.uuid4()}"
         res = self.client.post("/api/v1/chat", json={
             "session_id": session_id,
@@ -174,7 +235,6 @@ class TestChatEndpointsAndSecurity(unittest.TestCase):
         })
         self.assertEqual(res.status_code, 200)
 
-        # Verify nothing was written to DB for this session
         saved = (
             self.db.query(models.ChatMessage)
             .filter(models.ChatMessage.session_id == session_id)
@@ -185,7 +245,6 @@ class TestChatEndpointsAndSecurity(unittest.TestCase):
     # ── Unauthenticated history access ──────────────────────────────────────
 
     def test_unauthenticated_history_returns_401(self):
-        """GET /api/v1/chat/{session_id} without a token must return 401."""
         res = self.client.get(f"/api/v1/chat/{uuid.uuid4()}")
         self.assertEqual(res.status_code, 401)
 
@@ -233,7 +292,6 @@ class TestChatEndpointsAndSecurity(unittest.TestCase):
         self.assertEqual(bob_post_res.status_code, 403)
 
     def test_authenticated_chat_persists_to_db(self):
-        """Authenticated messages must be saved to the database."""
         user = CurrentUser(id=f"test-persist-{uuid.uuid4()}")
         app.dependency_overrides[get_optional_user] = lambda: user
 
