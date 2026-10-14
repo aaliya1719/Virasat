@@ -1,4 +1,9 @@
-"""Supabase Auth token validation for protected API routes."""
+"""Supabase Auth token validation for protected API routes.
+
+Provides two dependency variants:
+- get_current_user  → raises HTTP 401 if no valid token (use on routes that REQUIRE auth)
+- get_optional_user → returns None for guests, CurrentUser for authenticated (use for guest-capable routes)
+"""
 
 import os
 from dataclasses import dataclass
@@ -71,5 +76,46 @@ def get_current_user(
             detail="Supabase access token has no valid user identity.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    return CurrentUser(id=user_id)
+
+
+OptionalUser = CurrentUser | None
+
+
+def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> OptionalUser:
+    """
+    Returns CurrentUser when a valid Bearer token is provided, or None for guest
+    requests (no Authorization header). Never raises 401 — callers must handle None.
+    Does NOT weaken get_current_user; this is a separate dependency.
+    """
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        return None  # Guest path — no token present
+
+    supabase_url, anon_key = _supabase_auth_config()
+    if not supabase_url or not anon_key:
+        # Supabase not configured — treat as guest rather than server error on optional routes
+        return None
+
+    try:
+        response = httpx.get(
+            f"{supabase_url}/auth/v1/user",
+            headers={
+                "apikey": anon_key,
+                "Authorization": f"Bearer {credentials.credentials}",
+            },
+            timeout=5.0,
+        )
+    except httpx.HTTPError:
+        return None  # Auth service unavailable — fail open on optional auth
+
+    if response.status_code != 200:
+        return None  # Invalid/expired token — treat as guest
+
+    user_id = response.json().get("id")
+    if not isinstance(user_id, str) or not user_id:
+        return None
 
     return CurrentUser(id=user_id)

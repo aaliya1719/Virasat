@@ -193,6 +193,8 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     region_id: Optional[str] = None
     message: str = Field(..., min_length=1, max_length=2000)
+    page_context: Optional[str] = None
+    current_topic: Optional[str] = None
 
 
 class ChatResponse(BaseModel):

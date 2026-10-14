@@ -44,6 +44,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+import logging
+
+_logger = logging.getLogger("virasat.main")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    _logger.error(f"422 Validation error on {request.url.path}: {exc.errors()} | body={getattr(exc, 'body', None)}")
+    # Sanitize error details: bytes objects in 'input' fields are not JSON-serializable
+    safe_errors = []
+    for err in exc.errors():
+        safe_err = dict(err)
+        if isinstance(safe_err.get("input"), bytes):
+            safe_err["input"] = safe_err["input"].decode("utf-8", errors="replace")
+        safe_errors.append(safe_err)
+    return JSONResponse(status_code=422, content={"detail": safe_errors})
+
+
 # ── Routers (v1) ─────────────────────────────────────────────────────────────
 app.include_router(regions.router)
 app.include_router(content.router)

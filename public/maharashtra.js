@@ -97,6 +97,7 @@ function initializeScrollSpy() {
 
 // ==================== CHATBOT FUNCTIONALITY ==================== //
 let virasatSessionId = null;
+let isChatSending = false;
 
 function initializeChatbot() {
     const chatInput = document.querySelector('.chat-input');
@@ -104,7 +105,11 @@ function initializeChatbot() {
     const chatMessages = document.querySelector('.chat-messages');
     
     if (sendBtn && chatInput && chatMessages) {
-        sendBtn.addEventListener('click', function() {
+        if (sendBtn.__chatBound) return;
+        sendBtn.__chatBound = true;
+
+        sendBtn.addEventListener('click', function(e) {
+            e.preventDefault();
             sendMessage(chatInput, chatMessages);
         });
         
@@ -117,36 +122,115 @@ function initializeChatbot() {
     }
 }
 
+function showLoadingIndicator(container) {
+    const loaderDiv = document.createElement('div');
+    loaderDiv.className = 'chat-message ai-message chat-loading';
+    loaderDiv.id = 'chatTypingIndicator';
+    loaderDiv.innerHTML = `
+        <div class="typing-indicator" aria-label="Shrishti is thinking...">
+            <span></span><span></span><span></span>
+        </div>
+    `;
+    container.appendChild(loaderDiv);
+    container.scrollTop = container.scrollHeight;
+    return loaderDiv;
+}
+
+function removeLoadingIndicator(container) {
+    const loader = container.querySelector('#chatTypingIndicator');
+    if (loader) loader.remove();
+}
+
+function formatMessageContent(text) {
+    if (!text) return '';
+    const escaped = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    // Bold **text**
+    let formatted = escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    // Italic *text*
+    formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    // Double newlines to paragraphs
+    const paragraphs = formatted.split(/\n\n+/);
+    return paragraphs.map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+}
+
 function sendMessage(chatInput, chatMessages) {
-    const message = chatInput.value.trim();
-    
-    if (message !== '') {
-        addMessage(chatMessages, message, 'user');
-        chatInput.value = '';
-        
-        const chatApi = window.__virasatChat?.send;
-        if (chatApi) {
-            chatApi({ session_id: virasatSessionId, region_id: 'maharashtra', message })
-                .then(response => {
-                    virasatSessionId = response.session_id;
-                    addMessage(chatMessages, response.reply, 'ai');
-                })
-                .catch(() => {
-                    addMessage(chatMessages, generateMaharashtraAIResponse(message), 'ai');
-                });
-        } else {
-            setTimeout(function() {
-                addMessage(chatMessages, generateMaharashtraAIResponse(message), 'ai');
-            }, 500);
-        }
+    if (isChatSending) return;
+    const message = (chatInput.value || '').trim();
+    if (!message) return;
+
+    isChatSending = true;
+    addMessage(chatMessages, message, 'user');
+    chatInput.value = '';
+    chatInput.disabled = true;
+    const sendBtn = document.querySelector('.send-btn');
+    if (sendBtn) sendBtn.disabled = true;
+
+    showLoadingIndicator(chatMessages);
+
+    const chatApi = window.__virasatChat?.send;
+    if (chatApi) {
+        chatApi({
+            session_id: virasatSessionId,
+            region_id: 'maharashtra',
+            message: message,
+            page_context: document.title || 'Maharashtra Cultural Archive'
+        })
+        .then(response => {
+            removeLoadingIndicator(chatMessages);
+            if (response && response.session_id) {
+                virasatSessionId = response.session_id;
+            }
+            addMessage(chatMessages, response.reply, 'ai', response.sources || []);
+        })
+        .catch(err => {
+            console.warn('[Shrishti] API error, falling back to local archives:', err);
+            removeLoadingIndicator(chatMessages);
+            // Preserve guest chat flow or fallback when offline/unauthenticated
+            const fallbackReply = generateMaharashtraAIResponse(message);
+            const guestSources = ["Maharashtra Tourism Development Corporation (MTDC)", "Archaeological Survey of India (ASI)"];
+            addMessage(chatMessages, fallbackReply, 'ai', guestSources);
+        })
+        .finally(() => {
+            isChatSending = false;
+            chatInput.disabled = false;
+            if (sendBtn) sendBtn.disabled = false;
+            chatInput.focus();
+        });
+    } else {
+        setTimeout(function() {
+            removeLoadingIndicator(chatMessages);
+            addMessage(chatMessages, generateMaharashtraAIResponse(message), 'ai', ["Maharashtra Tourism Development Corporation (MTDC)"]);
+            isChatSending = false;
+            chatInput.disabled = false;
+            if (sendBtn) sendBtn.disabled = false;
+            chatInput.focus();
+        }, 500);
     }
 }
 
-function addMessage(container, text, sender) {
+function addMessage(container, text, sender, sources = []) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `chat-message ${sender}-message`;
-    messageDiv.innerHTML = `<p>${text}</p>`;
     
+    let contentHtml = (sender === 'user')
+        ? `<p>${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`
+        : formatMessageContent(text);
+        
+    if (sender === 'ai' && sources && Array.isArray(sources) && sources.length > 0) {
+        const sourceTags = sources.map(s => `<span class="source-tag">${s.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>`).join('');
+        contentHtml += `
+            <div class="chat-sources">
+                <span class="chat-sources-label"><i class="fas fa-landmark"></i> Sources:</span>
+                ${sourceTags}
+            </div>
+        `;
+    }
+    
+    messageDiv.innerHTML = contentHtml;
     container.appendChild(messageDiv);
     container.scrollTop = container.scrollHeight;
 }
@@ -204,9 +288,60 @@ chatStyles.textContent = `
         box-shadow: var(--ei-shadow-sm, 0 2px 8px rgba(74, 43, 19, 0.1));
     }
     .chat-message p {
-        margin: 0;
+        margin: 0 0 0.4rem 0;
         font-size: 0.88rem;
         line-height: 1.6;
+    }
+    .chat-message p:last-child {
+        margin-bottom: 0;
+    }
+    .chat-sources {
+        margin-top: 0.55rem;
+        padding-top: 0.45rem;
+        border-top: 1px dashed rgba(74, 43, 19, 0.2);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        align-items: center;
+    }
+    .chat-sources-label {
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        opacity: 0.8;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+    .source-tag {
+        font-size: 0.7rem;
+        background: rgba(151, 87, 44, 0.12);
+        color: var(--ei-terracotta, #97572C);
+        border: 1px solid rgba(151, 87, 44, 0.25);
+        border-radius: 999px;
+        padding: 0.15rem 0.5rem;
+        font-weight: 500;
+        display: inline-block;
+    }
+    .typing-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.35rem 0.2rem;
+    }
+    .typing-indicator span {
+        width: 7px;
+        height: 7px;
+        background: var(--ei-terracotta, #97572C);
+        border-radius: 50%;
+        animation: typingBounce 1.4s infinite ease-in-out both;
+    }
+    .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+    .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes typingBounce {
+        0%, 80%, 100% { transform: scale(0.3); opacity: 0.3; }
+        40% { transform: scale(1); opacity: 1; }
     }
 `;
 document.head.appendChild(chatStyles);
@@ -218,9 +353,12 @@ function initializeSuggestions() {
     const chatMessages = document.querySelector('.chat-messages');
     
     suggestionBtns.forEach(btn => {
-        btn.onclick = function() {
-            const question = this.textContent.trim();
-            if (chatInput && chatMessages) {
+        btn.onclick = function(e) {
+            e.preventDefault();
+            const clone = this.cloneNode(true);
+            clone.querySelectorAll('i').forEach(icon => icon.remove());
+            const question = clone.textContent.trim();
+            if (question && chatInput && chatMessages) {
                 chatInput.value = question;
                 sendMessage(chatInput, chatMessages);
             }

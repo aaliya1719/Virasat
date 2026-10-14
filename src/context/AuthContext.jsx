@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { sendChatMessage } from '../lib/api';
+import { sendChatMessage, fetchChatHistory } from '../lib/api';
 
 const AuthContext = createContext({
   user: null,
@@ -141,11 +141,16 @@ export function AuthProvider({ children }) {
   const isGuest = !user;
 
   useEffect(() => {
-    window.__virasatChat = { send: sendChatMessage };
+    window.__virasatChat = {
+      send: sendChatMessage,
+      fetchHistory: fetchChatHistory,
+      isAuthenticated: () => !!user,
+      openAuthModal: () => openAuthModal('signin'),
+    };
     return () => {
       delete window.__virasatChat;
     };
-  }, []);
+  }, [user]);
 
   const value = useMemo(
     () => ({

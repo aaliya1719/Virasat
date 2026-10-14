@@ -15,9 +15,10 @@ const BASE_URL = import.meta.env.DEV
 
 async function apiFetch(path, options = {}) {
   const url = `${BASE_URL}${path}`;
+  const { headers: optHeaders, ...restOptions } = options;
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
+    ...restOptions,
+    headers: { 'Content-Type': 'application/json', ...optHeaders },
   });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);

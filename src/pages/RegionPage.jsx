@@ -223,6 +223,8 @@ export default function RegionPage() {
     if (loading || error) return;
 
     document.body.classList.add('regional-route');
+    const existing = document.querySelector(`script[src="${controller}"]`);
+    if (existing) existing.remove();
     const script = document.createElement('script');
     script.src = controller;
     script.async = false;

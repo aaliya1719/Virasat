@@ -317,8 +317,10 @@ Virasat/
 │   ├── lib/                             # API and Supabase clients
 │   └── pages/                           # Landing, atlas, and region pages
 ├── backend/                             # FastAPI backend foundation
-│   ├── routers/                          # Chat, content, facts, places, regions, search
-│   ├── migrations/                      # Database migrations
+│   ├── routers/                         # Chat, content, facts, places, regions, search
+│   ├── services/                        # AI Cultural Guide & Gemini retrieval service
+│   ├── tests/                           # Unit and integration tests
+│   ├── migrations/                      # Database migrations & RLS policies
 │   └── models.py, schemas.py, auth.py   # Backend data and auth layers
 ├── public/assets/                       # Regional and avatar assets
 ├── state-data.js, data.js               # Cultural datasets
@@ -330,8 +332,8 @@ Virasat/
 ### Prerequisites
 
 - A modern web browser
-- Node.js and npm for the Vite/React application
-- Python 3 and the packages in `backend/requirements.txt` for the backend
+- Node.js (v18+) and npm for the Vite/React application
+- Python 3.10+ and the packages in `backend/requirements.txt` for the backend
 
 ### Run the frontend
 
@@ -352,28 +354,45 @@ python -m http.server 8000
 npm run build
 ```
 
-Backend setup and environment configuration are documented in the files under `backend/`. Configure Supabase credentials before enabling database-backed features.
+### Backend Setup & AI Cultural Guide (Shrishti)
 
-## Screenshots
+1. Navigate to the backend directory and install dependencies:
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   ```
 
-Screenshots can be added under `screenshots/`:
+2. Configure environment variables in `backend/.env` (refer to `backend/.env.example`):
+   ```env
+   # Database (defaults to local SQLite if unset)
+   DATABASE_URL=sqlite:///./virasat.db
 
-- `screenshots/landing-page.png`
-- `screenshots/cultural-atlas.png`
-- `screenshots/regional-exploration.png`
-- `screenshots/cultural-guide.png`
-- `screenshots/heritage-exploration.png`
+   # Supabase Auth verification
+   SUPABASE_URL=https://[project-ref].supabase.co
+   SUPABASE_ANON_KEY=[public-anon-key]
 
-## Future Scope
+   # Gemini API (Server-side only — never exposed to client)
+   GEMINI_API_KEY=your_gemini_api_key_here
+   GEMINI_MODEL=gemini-flash-latest
+   ```
 
-1. Complete coverage across all states and union territories.
-2. A grounded, versioned RAG-powered Cultural Guide.
-3. Hindi and regional Indian language support.
-4. Voice interaction and spoken explanations.
-5. Personalised cultural journeys and recommendations.
-6. Moderated contributions from practitioners, historians, institutions, and communities.
-7. Regional milestones, badges, quizzes, and discovery profiles.
-8. A cultural knowledge graph connecting places, traditions, communities, languages, and historical events.
+3. Run the automated backend checks and tests:
+   ```bash
+   python -m unittest tests/test_ai_guide.py
+   python verify_endpoints.py
+   ```
+
+4. Start the FastAPI server:
+   ```bash
+   uvicorn main:app --reload --port 8000
+   ```
+
+### AI Guide Architecture & Security
+- **Strict Server-Side Key Management**: `GEMINI_API_KEY` is loaded exclusively inside the FastAPI environment. Client browsers communicate with the backend via `POST /api/v1/chat` and never receive or store the key.
+- **Context-Aware Database Grounding**: Queries retrieve verified `ContentItem`, `Place`, and `Region` entries along with genuine `Source` relationships (e.g. Archaeological Survey of India, UNESCO, GI Registry, Sangeet Natak Akademi).
+- **Anti-Hallucination & Limits Acknowledgment**: Strict system instructions forbid fabricating facts, dates, or citations. If records are unavailable for a query, the guide explicitly acknowledges archive limitations.
+- **Session Ownership & RLS**: Chat history and message writes enforce Supabase user session ownership checks (`403 Forbidden` on unauthorized session access) and compatibility with Supabase Row Level Security.
+- **Resilient Fallback**: If the Gemini API key is unset, times out, or encounters provider rate limits, the system gracefully synthesizes answers directly from the verified database archive (`is_mock=true`). Unauthenticated guests seamlessly access curated regional guidance while being invited to authenticate for saved chat histories.
 
 ## Why VIRASAT?
 
@@ -402,7 +421,11 @@ VIRASAT was developed as a solution for the Smart India Hackathon under the cult
 
 ## License
 
-This project is intended for educational and cultural preservation purposes. 
+The source code is licensed under the [MIT License](./LICENSE).
+
+The cultural information, images, audio, and other third-party materials used by
+the project may have separate ownership and usage terms. Refer to the relevant
+source and attribution information before reusing those materials.
 
 ## Acknowledgements
 
