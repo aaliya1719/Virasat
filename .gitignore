@@ -13,6 +13,7 @@ __pycache__/
 venv/
 env/
 .env
+backend/.env
 
 # Database files (SQLite local dev — never commit)
 *.db
@@ -20,4 +21,4 @@ env/
 *.sqlite3
 
 # Alembic
-backend/alembic/versions/__pycache__/
+backend/alembic/versions/__pycache__/
