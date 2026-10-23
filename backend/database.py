@@ -17,8 +17,24 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Falls back to local SQLite if DATABASE_URL is not set
-_raw_url = os.getenv("DATABASE_URL", "sqlite:///./virasat.db")
+# Resolve SQLite path safely for both local execution and Vercel/AWS Lambda serverless environments
+_backend_dir = os.path.dirname(os.path.abspath(__file__))
+_default_sqlite_path = os.path.join(_backend_dir, "virasat.db")
+_is_serverless = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+
+_raw_url = os.getenv("DATABASE_URL")
+if not _raw_url:
+    if _is_serverless:
+        import shutil
+        _tmp_db = "/tmp/virasat.db"
+        if not os.path.exists(_tmp_db) and os.path.exists(_default_sqlite_path):
+            try:
+                shutil.copy2(_default_sqlite_path, _tmp_db)
+            except Exception:
+                pass
+        _raw_url = f"sqlite:///{_tmp_db}"
+    else:
+        _raw_url = f"sqlite:///{_default_sqlite_path}"
 
 # Normalise: some tools emit "postgres://" but SQLAlchemy 2.x requires "postgresql+psycopg2://"
 if _raw_url.startswith("postgres://"):

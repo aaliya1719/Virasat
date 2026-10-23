@@ -14,8 +14,11 @@ from routers import regions, content, places, facts, chat, search
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create all tables on startup (no Alembic needed for local dev)."""
-    Base.metadata.create_all(bind=engine)
+    """Create all tables on startup (no Alembic needed for local dev). Gracefully handles read-only DBs."""
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as exc:
+        _logger.warning(f"Could not run Base.metadata.create_all during lifespan startup: {exc}")
     yield
 
 
@@ -106,5 +109,7 @@ def root():
 
 
 @app.get("/health", tags=["Health"])
+@app.get("/api/health", tags=["Health"])
+@app.get("/api/v1/health", tags=["Health"])
 def health():
     return {"status": "healthy"}

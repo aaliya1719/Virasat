@@ -500,7 +500,11 @@ def call_gemini(
                 if response and response.text:
                     return response.text.strip()
             except Exception as model_err:
-                logger.warning(f"google-genai model '{candidate_model}' attempt failed: {model_err}")
+                err_str = str(model_err)
+                logger.warning(f"google-genai model '{candidate_model}' attempt failed: {err_str}")
+                if "API_KEY_INVALID" in err_str or "API key not valid" in err_str or "400" in err_str or "403" in err_str:
+                    logger.warning("Gemini API key is invalid or unauthorized; aborting candidate models.")
+                    break
                 continue
     except Exception as exc:
         logger.warning(f"google-genai SDK initialization failed ({exc}); trying HTTP REST fallback.")
@@ -544,6 +548,9 @@ def call_gemini(
                                 return parts[0]["text"].strip()
                     else:
                         logger.warning(f"Gemini REST with '{candidate_model}' returned {resp.status_code}")
+                        if resp.status_code in (400, 401, 403):
+                            logger.warning("Gemini REST API key rejected; aborting candidate models.")
+                            break
                 except Exception as rest_err:
                     logger.warning(f"Gemini REST with '{candidate_model}' error: {rest_err}")
                     continue
