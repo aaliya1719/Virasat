@@ -68,6 +68,15 @@ async def validation_exception_handler(request, exc):
     return JSONResponse(status_code=422, content={"detail": safe_errors})
 
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    _logger.error(f"500 Internal error on {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {type(exc).__name__}: {str(exc)}"}
+    )
+
+
 # ── Routers (v1) ─────────────────────────────────────────────────────────────
 app.include_router(regions.router)
 app.include_router(content.router)

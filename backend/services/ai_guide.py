@@ -281,9 +281,12 @@ def retrieve_grounding_data(
 
     for item in matched_items:
         # Relational sources linked to item
-        for s in item.sources:
-            if s and s.title:
-                sources_set.add(s.title)
+        try:
+            for s in (item.sources or []):
+                if s and getattr(s, "title", None):
+                    sources_set.add(s.title)
+        except Exception as src_err:
+            logger.debug(f"Could not load related sources for item {item.id}: {src_err}")
 
         # Verifiable factual designations directly present on the item
         if item.unesco_status:
@@ -405,21 +408,29 @@ def get_conversation_history(
     limit: int = 6,
 ) -> list[dict[str, str]]:
     """Retrieve recent conversation history for context continuity."""
-    recent_msgs = (
-        db.query(models.ChatMessage)
-        .filter(
-            models.ChatMessage.session_id == session_id,
-            models.ChatMessage.user_id == user_id,
+    # Guests don't have persisted history
+    if not user_id or user_id == "__guest__":
+        return []
+
+    try:
+        recent_msgs = (
+            db.query(models.ChatMessage)
+            .filter(
+                models.ChatMessage.session_id == session_id,
+                models.ChatMessage.user_id == user_id,
+            )
+            .order_by(models.ChatMessage.created_at.desc())
+            .limit(limit)
+            .all()
         )
-        .order_by(models.ChatMessage.created_at.desc())
-        .limit(limit)
-        .all()
-    )
-    recent_msgs.reverse()
-    history = []
-    for m in recent_msgs:
-        history.append({"role": m.role, "content": m.content})
-    return history
+        recent_msgs.reverse()
+        history = []
+        for m in recent_msgs:
+            history.append({"role": m.role, "content": m.content})
+        return history
+    except Exception as exc:
+        logger.warning(f"Unable to retrieve conversation history ({exc}); proceeding without history.")
+        return []
 
 
 def call_gemini(
